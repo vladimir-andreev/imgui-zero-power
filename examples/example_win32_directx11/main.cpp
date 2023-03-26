@@ -2,7 +2,8 @@
 // If you are new to Dear ImGui, read documentation from the docs/ folder + read the top of imgui.cpp.
 // Read online: https://github.com/ocornut/imgui/tree/master/docs
 
-// Fixed resizing of the main window. Now it redraws the window while resizing.
+// 1. Fixed resizing of the main window. Now it redraws the window while resizing.
+// 2. Fixed high CPU usage when minimized;
 
 #include "imgui.h"
 #include "imgui_impl_win32.h"
@@ -182,6 +183,7 @@ int main(int, char**)
         if (done)
             break;
 
+        if (IsIconic(hwnd)) Sleep(15);  //2. Fix high CPU usage when minimized
         RunFrame();
     }
 
@@ -278,6 +280,7 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
             g_pSwapChain->ResizeBuffers(0, (UINT)LOWORD(lParam), (UINT)HIWORD(lParam), DXGI_FORMAT_UNKNOWN, 0);
             CreateRenderTarget();
 
+            //1. Fixed resizing of the main window. WM_SIZE messages are not part of the main loop.
             if (ImGui::GetCurrentContext()) RunFrame();
         }
         return 0;
