@@ -1,3 +1,20 @@
+Important
+=====
+
+Modified main.cpp in Win32_DirectX11 example.
+
+ Fixes by Vladi Baddy:
+ 1. Fixed ugly resizing of the main window. Now it redraws the main window while resizing and it's beautiful.
+ 2. Fixed high CPU usage when minimized;
+ 3. Extreme Power Saving: GPU = 0% if there are no DrawData changes. Presents/swaps only changed windows.
+    Plotting and blinking cursor work correct.
+    
+    Warning: The FPS string in Hello World! window triggers redraw almost every frame, so it should be hidden/minimized or out of display,
+    or simply displaying of FPS may be stopped.
+    This solution does not require any ImGui source changes. It works entirely at client side.
+
+These changes can be easily applied to all other samples.
+
 Dear ImGui
 =====
 
