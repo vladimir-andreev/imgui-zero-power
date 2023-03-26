@@ -39,7 +39,7 @@ bool show_another_window = false;
 ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
 
-void RunFrame()
+void DrawFrame()
 {
     ImGuiIO& io = ImGui::GetIO();
     // Start the Dear ImGui frame
@@ -91,10 +91,17 @@ void RunFrame()
     // Rendering
     ImGui::Render();
 
-    bool present = ShouldPresent(0, *ImGui::GetDrawData());  //check main window
+    const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
+
+    // This will check if color has changed, even when the Hello, world! window is floating (in a viewport)
+    static float old_color[4];
+    bool color_changed = memcmp(old_color, clear_color_with_alpha, sizeof(old_color)); //check if color has changed
+    memcpy(old_color, clear_color_with_alpha, sizeof(old_color));
+
+
+    bool present = color_changed || ShouldPresent(0, *ImGui::GetDrawData());  //check main window
     if (present)
     {
-        const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
         g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, NULL);
         g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color_with_alpha);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
@@ -203,7 +210,7 @@ int main(int, char**)
             break;
 
         if (IsIconic(hwnd)) Sleep(15);  //2. Fix high CPU usage when minimized
-        RunFrame();
+        DrawFrame();
     }
 
     // Cleanup
@@ -300,7 +307,7 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
             CreateRenderTarget();
 
             //1. Fixed resizing of the main window. WM_SIZE messages are not part of the main loop.
-            if (ImGui::GetCurrentContext()) RunFrame();
+            if (ImGui::GetCurrentContext()) DrawFrame();
         }
         return 0;
     case WM_SYSCOMMAND:
