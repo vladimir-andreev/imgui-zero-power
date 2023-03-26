@@ -2,8 +2,14 @@
 // If you are new to Dear ImGui, read documentation from the docs/ folder + read the top of imgui.cpp.
 // Read online: https://github.com/ocornut/imgui/tree/master/docs
 
-// 1. Fixed resizing of the main window. Now it redraws the window while resizing.
+// Fixes by Vladi Baddy:
+// 1. Fixed ugly resizing of the main window. Now it redraws the main window while resizing and it's beautiful.
 // 2. Fixed high CPU usage when minimized;
+// 3. Extreme Power Saving: GPU = 0% if there are no DrawData changes. Presents/swaps only changed windows.
+//    Plotting and blinking cursor work correct.
+//    Warning: The FPS string in Hello World! window triggers redraw almost every frame, so it should be hidden/minimized or out of display,
+//    or simply displaying of FPS may be removed.
+//    This solution does not require any ImGui source changes. It works entirely at client side.
 
 #include "imgui.h"
 #include "imgui_impl_win32.h"
@@ -24,7 +30,8 @@ void CreateRenderTarget();
 void CleanupRenderTarget();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-
+bool ShouldPresent(int indx, ImDrawData& data); //checks if there are changes in DrawData
+void RenderPlatformWindowsPowerSaving(void* platform_render_arg = 0, void* renderer_render_arg = 0);
 
 // Our state
 bool show_demo_window = true;
@@ -48,6 +55,7 @@ void RunFrame()
     {
         static float f = 0.0f;
         static int counter = 0;
+        static bool show_fps = 0;
 
         ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
 
@@ -63,7 +71,9 @@ void RunFrame()
         ImGui::SameLine();
         ImGui::Text("counter = %d", counter);
 
-        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+        ImGui::Checkbox("Show FPS", &show_fps);
+        if (show_fps)
+            ImGui::Text("Application average %.1f ms/frame (%.f FPS)", 1000.0f / io.Framerate, io.Framerate);
         ImGui::End();
     }
 
@@ -77,22 +87,31 @@ void RunFrame()
         ImGui::End();
     }
 
+
     // Rendering
     ImGui::Render();
-    const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
-    g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, NULL);
-    g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color_with_alpha);
-    ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
+    bool present = ShouldPresent(0, *ImGui::GetDrawData());  //check main window
+    if (present)
+    {
+        const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
+        g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, NULL);
+        g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color_with_alpha);
+        ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
+        g_pSwapChain->Present(1, 0); // Present with vsync
+        //g_pSwapChain->Present(0, 0); // Present without vsync
+    }
+    else Sleep(1);
 
     // Update and Render additional Platform Windows
     if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
     {
         ImGui::UpdatePlatformWindows();
-        ImGui::RenderPlatformWindowsDefault();
+        //ImGui::RenderPlatformWindowsDefault();
+        RenderPlatformWindowsPowerSaving();
     }
 
-    g_pSwapChain->Present(1, 0); // Present with vsync
-    //g_pSwapChain->Present(0, 0); // Present without vsync
 }
 
 
@@ -302,4 +321,79 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         break;
     }
     return ::DefWindowProcW(hWnd, msg, wParam, lParam);
+}
+
+
+//--------------------- Power saving ----------------------------
+
+int GetHash(void* p, int size)
+{
+    char* pc = (char*)p;
+    int hash = 0;
+    while (size--) hash = hash*7 + *pc++; //simple and quick hash, good enough
+    return hash;
+}
+
+
+//maybe set as high as needed
+#define MAX_VIEPORTS 64
+
+bool ShouldPresent(int vport, ImDrawData& data)
+{
+    if (vport >= MAX_VIEPORTS) return true;
+
+    static ImDrawData lastDrawData[MAX_VIEPORTS];
+    static int oldhash[MAX_VIEPORTS];
+    
+    int vsize = ImGui::GetPlatformIO().Viewports.Size;
+    if (vsize < MAX_VIEPORTS)
+        oldhash[vsize] = 0; // Very important: clear just closed viewports!
+
+    ImDrawData last = lastDrawData[vport];  lastDrawData[vport] = data;
+
+    //quick exit
+    if (data.CmdListsCount != last.CmdListsCount) goto fin;
+    if (data.TotalVtxCount != last.TotalVtxCount) goto fin;
+    if (data.TotalIdxCount != last.TotalIdxCount) goto fin;
+    if (data.DisplaySize[0] != last.DisplaySize[0]) goto fin;
+    if (data.DisplaySize[1] != last.DisplaySize[1]) goto fin;
+    if (data.FramebufferScale[0] != last.FramebufferScale[0]) goto fin;
+    if (data.FramebufferScale[1] != last.FramebufferScale[1]) goto fin;
+
+    //hash check
+    int hash = 0;
+    for (int i = 0; i < data.CmdListsCount; i++)
+    {
+        hash += GetHash(&(data.CmdLists[i]->VtxBuffer[0]), data.CmdLists[i]->VtxBuffer.size() * sizeof(ImDrawVert));
+        hash += GetHash(&(data.CmdLists[i]->IdxBuffer[0]), data.CmdLists[i]->IdxBuffer.size() * sizeof(ImDrawIdx));
+        hash += GetHash(&(data.CmdLists[i]->CmdBuffer[0]), data.CmdLists[i]->CmdBuffer.size() * sizeof(ImDrawCmd));
+    }
+
+    bool present = oldhash[vport] != hash;
+    oldhash[vport] = hash;
+    return present;
+
+fin:
+    oldhash[vport] = 0;
+    return true;
+}
+
+
+void RenderPlatformWindowsPowerSaving(void* platform_render_arg, void* renderer_render_arg)
+{
+    // Skip the main viewport (index 0), which is always fully handled by the application!
+    auto& platform_io = ImGui::GetPlatformIO();
+    for (int i = 1; i < platform_io.Viewports.Size; i++)
+    {
+        ImGuiViewport* viewport = platform_io.Viewports[i];
+        if (viewport->Flags & ImGuiViewportFlags_Minimized) continue;
+
+        if (!ShouldPresent(i, *viewport->DrawData)) continue;
+
+        if (platform_io.Platform_RenderWindow) platform_io.Platform_RenderWindow(viewport, platform_render_arg);
+        if (platform_io.Renderer_RenderWindow) platform_io.Renderer_RenderWindow(viewport, renderer_render_arg);
+
+        if (platform_io.Platform_SwapBuffers) platform_io.Platform_SwapBuffers(viewport, platform_render_arg);
+        if (platform_io.Renderer_SwapBuffers) platform_io.Renderer_SwapBuffers(viewport, renderer_render_arg);
+    }
 }
