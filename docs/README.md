@@ -1,5 +1,6 @@
-Important
+Important 
 =====
+### Extreme GPU Power Savings when idle!
 
 Modified main.cpp in Win32_DirectX11 example.
 
@@ -11,9 +12,11 @@ Modified main.cpp in Win32_DirectX11 example.
     
     Warning: The FPS string in Hello World! window triggers redraw almost every frame, so it should be hidden/minimized or out of display,
     or simply displaying of FPS may be stopped.
-    This solution does not require any ImGui source changes. It works entirely at client side.
+    
+    This solution is simple and clean, it does not require any ImGui source changes. It works entirely at client side.
 
-These changes can be easily applied to all other samples.
+These changes can be easily applied to any other Win32 sample.
+It may also be applied to SDL, if WM_SIZE can be captured.
 
 Dear ImGui
 =====
