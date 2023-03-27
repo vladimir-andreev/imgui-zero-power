@@ -224,8 +224,8 @@ int main(int, char**)
         if (done)
             break;
 
-        if (IsIconic(hwnd)) Sleep(15);  //2. Fix high CPU usage when minimized
-        DrawFrame();
+        if (IsIconic(hwnd)) Sleep(15);  //2. Fix high CPU usage when minimized (when no VSync)
+        DrawFrame(); //this will wait for VSync
     }
 
     // Cleanup
