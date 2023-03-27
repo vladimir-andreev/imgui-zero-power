@@ -30,7 +30,7 @@ void CreateRenderTarget();
 void CleanupRenderTarget();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-bool ShouldPresent(int indx, ImDrawData& data); //checks if there are changes in DrawData
+bool ShouldRedraw(int indx, ImDrawData& data); //checks if there are changes in DrawData
 void RenderPlatformWindowsPowerSaving(void* platform_render_arg = 0, void* renderer_render_arg = 0);
 
 // Our state
@@ -55,7 +55,7 @@ void DrawFrame()
     {
         static float f = 0.0f;
         static int counter = 0;
-        static bool show_fps = 0;
+        static bool show_fps, show_fps1=1;
 
         ImGui::Begin("Hello, world!");                          // Create a window called "Hello, world!" and append into it.
 
@@ -74,6 +74,14 @@ void DrawFrame()
         ImGui::Checkbox("Show FPS", &show_fps);
         if (show_fps)
             ImGui::Text("Application average %.1f ms/frame (%.f FPS)", 1000.0f / io.Framerate, io.Framerate);
+
+        ImGui::Checkbox("Show stable FPS", &show_fps1);
+        if (show_fps1) {
+            static float fr = 0;
+            fr += 0.1 * (io.Framerate - fr); // we'll have a simple LPF filter
+            ImGui::Text("Application average %.1f ms/frame (%.f FPS)", 1000.0f / fr, fr);
+        }
+
         ImGui::End();
     }
 
@@ -93,23 +101,30 @@ void DrawFrame()
 
     const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
 
-    // This will check if color has changed, even when the Hello, world! window is floating (in a viewport)
+    // This will check if color has changed, in case when the Hello, world! window is floating (in a viewport) and will not trigger update of main win.
     static float old_color[4];
     bool color_changed = memcmp(old_color, clear_color_with_alpha, sizeof(old_color)); //check if color has changed
     memcpy(old_color, clear_color_with_alpha, sizeof(old_color));
 
 
-    bool present = color_changed || ShouldPresent(0, *ImGui::GetDrawData());  //check main window
-    if (present)
+    // Present with VSync for all windows, not only main. Any of them may or may not redraw.
+    IDXGIOutput* pOutput = nullptr;
+    g_pSwapChain->GetContainingOutput(&pOutput);
+    pOutput->WaitForVBlank();    // Wait for the next VSync signal
+    pOutput->Release();    // Release the DXGI output
+
+
+    bool redraw = color_changed || ShouldRedraw(0, *ImGui::GetDrawData());  //check main window
+    if (redraw)
     {
         g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, NULL);
         g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color_with_alpha);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 
-        g_pSwapChain->Present(1, 0); // Present with vsync
-        //g_pSwapChain->Present(0, 0); // Present without vsync
+        g_pSwapChain->Present(0, 0); // Present without vsync
+        //g_pSwapChain->Present(1, 0); // Present with vsync
     }
-    else Sleep(1);
+    //else Sleep(1); //If used without VSYNC, the loop rate may sky-rocket. Sleep(1) prevents that.
 
     // Update and Render additional Platform Windows
     if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
@@ -299,6 +314,10 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
     switch (msg)
     {
+    case WM_MOVE:
+        // Fixed some rare artefacts when moving the main window.
+        if (ImGui::GetCurrentContext()) DrawFrame();
+        break;
     case WM_SIZE:
         if (g_pd3dDevice != NULL && wParam != SIZE_MINIMIZED)
         {
@@ -331,7 +350,7 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 }
 
 
-//--------------------- Power saving ----------------------------
+// 3.--------------------- GPU Power Saving ----------------------------
 
 int GetHash(void* p, int size)
 {
@@ -345,7 +364,7 @@ int GetHash(void* p, int size)
 //maybe set as high as needed
 #define MAX_VIEPORTS 64
 
-bool ShouldPresent(int vport, ImDrawData& data)
+bool ShouldRedraw(int vport, ImDrawData& data)
 {
     if (vport >= MAX_VIEPORTS) return true;
 
@@ -395,7 +414,7 @@ void RenderPlatformWindowsPowerSaving(void* platform_render_arg, void* renderer_
         ImGuiViewport* viewport = platform_io.Viewports[i];
         if (viewport->Flags & ImGuiViewportFlags_Minimized) continue;
 
-        if (!ShouldPresent(i, *viewport->DrawData)) continue;
+        if (!ShouldRedraw(i, *viewport->DrawData)) continue;
 
         if (platform_io.Platform_RenderWindow) platform_io.Platform_RenderWindow(viewport, platform_render_arg);
         if (platform_io.Renderer_RenderWindow) platform_io.Renderer_RenderWindow(viewport, renderer_render_arg);
